@@ -280,9 +280,27 @@ def batch_process(output_method, files:list[ProcessEntry], use_new_method) -> No
             imagefiles.append(f)
 
         elif util.is_video(fullname) or util.has_extension(fullname, ['gif']):
-            destination = util.get_destfilename_from_path(fullname, roop.globals.output_path, f'__temp.{roop.globals.CFG.output_video_format}')
-            f.finalname = destination
-            videofiles.append(f)
+            input_face_amount = 1
+            selected_index = None
+            
+            # If enabled, add video entries for the amount of all faces
+            if roop.globals.loop_through_all_faces:
+                input_face_amount = len(roop.globals.INPUT_FACESETS)
+                selected_index = process_mgr.options.selected_index
+
+            for _ in range(input_face_amount):
+                new_f = ProcessEntry(f.filename, f.startframe, f.endframe, f.fps)
+                prefix = ''
+                # Modify filename when processing multiple faces
+                if roop.globals.loop_through_all_faces:
+                    # Prepend the face name to the target filename for unique identification
+                    prefix = roop.globals.INPUT_FACESETS[selected_index].name + '-'
+                    selected_index += 1
+                    if selected_index >= len(roop.globals.INPUT_FACESETS):
+                        selected_index = 0
+                destination = util.get_destfilename_from_path(fullname, roop.globals.output_path, f'__temp.{roop.globals.CFG.output_video_format}', prefix)
+                new_f.finalname = destination
+                videofiles.append(new_f)
 
 
 
@@ -375,6 +393,15 @@ def batch_process(output_method, files:list[ProcessEntry], use_new_method) -> No
             elapsed_time = time() - start_processing
             average_fps = (v.endframe - v.startframe) / elapsed_time
             update_status(f'\nProcessing {os.path.basename(destination)} took {elapsed_time:.2f} secs, {average_fps:.2f} frames/s')
+
+            if roop.globals.loop_through_all_faces:
+                # last video, no need to switch faceset anymore
+                if index != len(videofiles) - 1:
+                    process_mgr.options.selected_index += 1
+                    if process_mgr.options.selected_index >= len(roop.globals.INPUT_FACESETS):
+                        process_mgr.options.selected_index = 0
+                    update_status("Switching to next face, face name: " + roop.globals.INPUT_FACESETS[process_mgr.options.selected_index].name)
+                
     end_processing('Finished')
 
 

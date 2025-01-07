@@ -1,6 +1,8 @@
 import numpy as np
 
 class FaceSet:
+    # The filename of the faceset
+    name = ''
     faces = []
     ref_images = []
     embedding_average = 'None'

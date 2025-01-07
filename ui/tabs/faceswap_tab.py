@@ -144,6 +144,7 @@ def faceswap_tab():
                     bt_srcfiles = gr.Files(label='Source Images or Facesets', file_count="multiple", file_types=["image", ".fsz", ".webp"], elem_id='filelist', height=233)
                     bt_destfiles = gr.Files(label='Target File(s)', file_count="multiple", file_types=["image", "video", ".webp"], elem_id='filelist', height=233)
                 with gr.Row(variant='panel'):
+                    roop.globals.loop_through_all_faces = gr.Checkbox(label="Batch face swap", info="Loop through all faces for all target file(s)", value=False)
                     ui.globals.ui_selected_swap_model = gr.Dropdown(model_swap_choices, value=model_swap_choices[0], label="Specify Face Swap Model")
                     forced_fps = gr.Slider(minimum=0, maximum=120, value=0, label="Video FPS", info='Overrides detected fps if not 0', step=1.0, interactive=True, container=True)
 
@@ -254,7 +255,7 @@ def faceswap_tab():
 
     start_event = bt_start.click(fn=start_swap, 
         inputs=[ui.globals.ui_selected_swap_model, output_method, ui.globals.ui_selected_enhancer, selected_face_detection, roop.globals.keep_frames, roop.globals.wait_after_extraction,
-                    roop.globals.skip_audio, max_face_distance, ui.globals.ui_blend_ratio, selected_mask_engine, clip_text,video_swapping_method, no_face_action, vr_mode, autorotate, chk_restoreoriginalmouth, num_swap_steps, ui.globals.ui_upscale, maskimage],
+                    roop.globals.skip_audio, max_face_distance, ui.globals.ui_blend_ratio, selected_mask_engine, clip_text,video_swapping_method, no_face_action, vr_mode, autorotate, chk_restoreoriginalmouth, num_swap_steps, ui.globals.ui_upscale, roop.globals.loop_through_all_faces, maskimage],
         outputs=[bt_start, bt_stop, resultfiles], show_progress='full')
     after_swap_event = start_event.success(fn=on_resultfiles_finished, inputs=[resultfiles], outputs=[resultimage, resultvideo])
 
@@ -354,6 +355,7 @@ def on_srcfile_changed(srcfiles, progress=gr.Progress()):
             if len(face_set.faces) > 0:
                 if len(face_set.faces) > 1:
                     face_set.AverageEmbeddings()
+                face_set.name = os.path.basename(source_path).split('.')[0]
                 roop.globals.INPUT_FACESETS.append(face_set)
                                         
         elif util.has_image_extension(source_path):
@@ -368,6 +370,7 @@ def on_srcfile_changed(srcfiles, progress=gr.Progress()):
                 face_set.faces.append(face)
                 image = util.convert_to_gradio(f[1])
                 ui.globals.ui_input_thumbs.append(image)
+                face_set.name = os.path.basename(source_path).split('.')[0]
                 roop.globals.INPUT_FACESETS.append(face_set)
                 
     progress(1.0)
@@ -686,7 +689,7 @@ def translate_swap_mode(dropdown_text):
 
 
 def start_swap( swap_model, output_method, enhancer, detection, keep_frames, wait_after_extraction, skip_audio, face_distance, blend_ratio,
-                selected_mask_engine, clip_text, processing_method, no_face_action, vr_mode, autorotate, restore_original_mouth, num_swap_steps, upsample, imagemask, progress=gr.Progress()):
+                selected_mask_engine, clip_text, processing_method, no_face_action, vr_mode, autorotate, restore_original_mouth, num_swap_steps, upsample, loop_through_all_faces, imagemask, progress=gr.Progress()):
     from ui.main import prepare_environment
     from roop.core import batch_process_regular
     global is_processing, list_files_process
@@ -715,6 +718,7 @@ def start_swap( swap_model, output_method, enhancer, detection, keep_frames, wai
     roop.globals.vr_mode = vr_mode
     roop.globals.autorotate_faces = autorotate
     roop.globals.subsample_size = int(upsample[:3])
+    roop.globals.loop_through_all_faces = loop_through_all_faces
     mask_engine = map_mask_engine(selected_mask_engine, clip_text)
 
     if roop.globals.face_swap_mode == 'selected':

@@ -179,6 +179,8 @@ class ProcessMgr():
     def run_batch(self, source_files, target_files, threads:int = 1):
         progress_bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
         self.total_frames = len(source_files)
+        if roop.globals.loop_through_all_faces:
+            self.total_frames *= len(self.input_face_datas)
         self.num_threads = threads
         with tqdm(total=self.total_frames, desc='Processing', unit='frame', dynamic_ncols=True, bar_format=progress_bar_format) as progress:
             with ThreadPoolExecutor(max_workers=threads) as executor:
@@ -199,19 +201,36 @@ class ProcessMgr():
             
             # Decode the byte array into an OpenCV image
             temp_frame = cv2.imdecode(np.fromfile(f, dtype=np.uint8), cv2.IMREAD_COLOR)
-            if temp_frame is not None:
-                if self.options.frame_processing:
-                    for p in self.processors:
-                        frame = p.Run(temp_frame)
-                    resimg = frame
-                else:
-                    resimg = self.process_frame(temp_frame)
-                if resimg is not None:
-                    i = source_files.index(f)
-                    # Also let numpy write the file to support utf-8/16 filenames
-                    cv2.imencode(f'.{roop.globals.CFG.output_image_format}',resimg)[1].tofile(target_files[i])
-            if update:
-                update()
+            
+            input_face_amount = 1
+            
+            if roop.globals.loop_through_all_faces:
+                input_face_amount = len(self.input_face_datas)
+            
+            for input_face_idx in range(input_face_amount):
+                if temp_frame is not None:
+                    if self.options.frame_processing:
+                        for p in self.processors:
+                            frame = p.Run(temp_frame)
+                        resimg = frame
+                    else:
+                        resimg = self.process_frame(temp_frame, input_face_idx)
+                    if resimg is not None:
+                        i = source_files.index(f)
+                        target_file = target_files[i]
+                        
+                        # Modify filename when processing multiple faces
+                        if roop.globals.loop_through_all_faces:
+                            # Prepend the face name to the target filename for unique identification
+                            dir_name, base_name = os.path.split(target_file)
+                            faceset_name = roop.globals.INPUT_FACESETS[input_face_idx].name
+                            new_base_name = faceset_name + "-" + base_name
+                            target_file = os.path.join(dir_name, new_base_name)
+                            
+                        # Also let numpy write the file to support utf-8/16 filenames
+                        cv2.imencode(f'.{roop.globals.CFG.output_image_format}',resimg)[1].tofile(target_file)
+                if update:
+                    update()
 
 
 
@@ -359,11 +378,11 @@ class ProcessMgr():
 
 
 
-    def process_frame(self, frame:Frame):
+    def process_frame(self, frame:Frame, input_face_idx:int = -1):
         if len(self.input_face_datas) < 1 and not self.options.show_face_masking:
             return frame
         temp_frame = frame.copy()
-        num_swapped, temp_frame = self.swap_faces(frame, temp_frame)
+        num_swapped, temp_frame = self.swap_faces(frame, temp_frame, input_face_idx)
         if num_swapped > 0:
             if roop.globals.no_face_action == eNoFaceAction.SKIP_FRAME_IF_DISSIMILAR:
                 if len(self.input_face_datas) > num_swapped:
@@ -386,20 +405,20 @@ class ProcessMgr():
             #alternatively, it could mark all the necessary frames for deletion, delete them at the end, then rename the remaining frames that might work?
             return None
         else:
-            return self.retry_rotated(frame)
+            return self.retry_rotated(frame, input_face_idx)
 
-    def retry_rotated(self, frame):
+    def retry_rotated(self, frame, input_face_idx:int = -1):
         copyframe = frame.copy()
         copyframe = rotate_clockwise(copyframe)
         temp_frame = copyframe.copy()
-        num_swapped, temp_frame = self.swap_faces(copyframe, temp_frame)
+        num_swapped, temp_frame = self.swap_faces(copyframe, temp_frame, input_face_idx)
         if num_swapped > 0:
             return rotate_anticlockwise(temp_frame)
         
         copyframe = frame.copy()
         copyframe = rotate_anticlockwise(copyframe)
         temp_frame = copyframe.copy()
-        num_swapped, temp_frame = self.swap_faces(copyframe, temp_frame)
+        num_swapped, temp_frame = self.swap_faces(copyframe, temp_frame, input_face_idx)
         if num_swapped > 0:
             return rotate_clockwise(temp_frame)
         del copyframe
@@ -407,8 +426,15 @@ class ProcessMgr():
         
 
 
-    def swap_faces(self, frame, temp_frame):
+    def swap_faces(self, frame, temp_frame, input_face_idx:int = -1):
         num_faces_found = 0
+
+        selected_face_index = self.options.selected_index
+        
+        # Dynamically overrides the selected index if we are processing multiple faces
+        if roop.globals.loop_through_all_faces:
+            if input_face_idx != -1:
+                selected_face_index = input_face_idx
 
         if self.options.swap_mode == "first":
             face = get_first_face(frame)
@@ -417,7 +443,7 @@ class ProcessMgr():
                 return num_faces_found, frame
             
             num_faces_found += 1
-            temp_frame = self.process_face(self.options.selected_index, face, temp_frame)
+            temp_frame = self.process_face(selected_face_index, face, temp_frame)
             del face
 
         else:
@@ -428,7 +454,7 @@ class ProcessMgr():
             if self.options.swap_mode == "all":
                 for face in faces:
                     num_faces_found += 1
-                    temp_frame = self.process_face(self.options.selected_index, face, temp_frame)
+                    temp_frame = self.process_face(selected_face_index, face, temp_frame)
 
             elif self.options.swap_mode == "all_input" or self.options.swap_mode == "all_random":
                 for i,face in enumerate(faces):
@@ -446,7 +472,7 @@ class ProcessMgr():
                         if compute_cosine_distance(tf.embedding, face.embedding) <= self.options.face_distance_threshold:
                             if i < len(self.input_face_datas):
                                 if use_index:
-                                    temp_frame = self.process_face(self.options.selected_index, face, temp_frame)
+                                    temp_frame = self.process_face(selected_face_index, face, temp_frame)
                                 else:
                                     temp_frame = self.process_face(i, face, temp_frame)
                                 num_faces_found += 1
@@ -457,7 +483,7 @@ class ProcessMgr():
                 for face in faces:
                     if face.sex == gender:
                         num_faces_found += 1
-                        temp_frame = self.process_face(self.options.selected_index, face, temp_frame)
+                        temp_frame = self.process_face(selected_face_index, face, temp_frame)
             
             # might be slower but way more clean to release everything here
             for face in faces:

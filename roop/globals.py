@@ -34,6 +34,8 @@ blend_ratio = 0.5
 distance_threshold = 0.65
 default_det_size = True
 
+loop_through_all_faces = False
+
 no_face_action = 0
 
 processing = False

@@ -124,12 +124,12 @@ def normalize_output_path(source_path: str, target_path: str, output_path: str) 
 
 
 def get_destfilename_from_path(
-    srcfilepath: str, destfilepath: str, extension: str
+    srcfilepath: str, destfilepath: str, extension: str, prefix: str = ""
 ) -> str:
     fn, ext = os.path.splitext(os.path.basename(srcfilepath))
     if "." in extension:
-        return os.path.join(destfilepath, f"{fn}{extension}")
-    return os.path.join(destfilepath, f"{fn}{extension}{ext}")
+        return os.path.join(destfilepath, f"{prefix}{fn}{extension}")
+    return os.path.join(destfilepath, f"{prefix}{fn}{extension}{ext}")
 
 
 def replace_template(file_path: str, index: int = 0) -> str:
